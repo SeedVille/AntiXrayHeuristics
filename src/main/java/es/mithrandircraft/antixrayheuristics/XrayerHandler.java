@@ -154,8 +154,8 @@ class XrayerHandler {
                 else DropItemAtPlayerLocation(belongings[37], target);
             }
 
-            //Log AbsolvedPlayer in console:
-            System.out.print(ChatColor.translateAlternateColorCodes('&', LocaleManager.get().getString("MessagesPrefix")) + " " + PlaceholderManager.SubstitutePlayerNameAndColorCodePlaceholders(LocaleManager.get().getString("AbsolvedPlayer"), target.getName()));
+//            Log AbsolvedPlayer in console:
+//            System.out.print(ChatColor.translateAlternateColorCodes('&', LocaleManager.get().getString("MessagesPrefix")) + " " + PlaceholderManager.SubstitutePlayerNameAndColorCodePlaceholders(LocaleManager.get().getString("AbsolvedPlayer"), target.getName()));
 
             //Execute configured commands:
             for (int i = 0; i < mainClassAccess.getConfig().getStringList("CommandsExecutedOnPlayerAbsolved").size(); i++) {

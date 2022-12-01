@@ -54,6 +54,9 @@ public final class AntiXrayHeuristics extends JavaPlugin implements Listener {
 
     private final int suspicionStreakZeroThreshold = 20; //Ammount of consecutive times after which a player is considered as no longer mining.
 
+    private static final Set<Material> RELEVANT_BASES = Set.of(Material.STONE, Material.DEEPSLATE, Material.GRANITE, Material.DIORITE,
+            Material.ANDESITE, Material.TUFF, Material.NETHERRACK, Material.BASALT, Material.BLACKSTONE);
+
     //Precalculated heuristics:
 
     private int nonOreStreakDecreaseAmount; //Mined blocks streak decrease from all sessions every time mainRunnableFrequency is reached.
@@ -73,10 +76,14 @@ public final class AntiXrayHeuristics extends JavaPlugin implements Listener {
     //-------
 
     //Get AXH main plugin class
-    public static AntiXrayHeuristics GetPlugin() { return plugin; }
+    public static AntiXrayHeuristics GetPlugin() {
+        return plugin;
+    }
 
     //Get AXH API
-    public APIAntiXrayHeuristics GetAPI() { return api; }
+    public APIAntiXrayHeuristics GetAPI() {
+        return api;
+    }
 
     @Override
     public void onEnable() {
@@ -116,12 +123,11 @@ public final class AntiXrayHeuristics extends JavaPlugin implements Listener {
         getCommand("AXH").setTabCompleter(new CommandAXHAutoCompleter());
 
         //Sql connection?:
-        if(getConfig().getString("StorageType").equals("MYSQL"))
-        {
+        if (getConfig().getString("StorageType").equals("MYSQL")) {
             mm.InitializeDataSource();
             Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
                 try {
-                mm.SQLCreateTableIfNotExists();
+                    mm.SQLCreateTableIfNotExists();
                 } catch (SQLException e) {
                     e.printStackTrace();
                 }
@@ -129,8 +135,7 @@ public final class AntiXrayHeuristics extends JavaPlugin implements Listener {
         }
 
         //Create json file if not exists?:
-        else if(getConfig().getString("StorageType").equals("JSON"))
-        {
+        else if (getConfig().getString("StorageType").equals("JSON")) {
             mm.JSONFileCreateIfNotExists();
         }
 
@@ -146,7 +151,7 @@ public final class AntiXrayHeuristics extends JavaPlugin implements Listener {
         MainRunnable();
 
         //Precalculations:
-        nonOreStreakDecreaseAmount = -((int)Math.ceil((float)getConfig().getInt("MinimumBlocksMinedToNextVein") / 4f)); //Calculates bock streak reduction ammount on Runnable
+        nonOreStreakDecreaseAmount = -((int) Math.ceil((float) getConfig().getInt("MinimumBlocksMinedToNextVein") / 4f)); //Calculates bock streak reduction ammount on Runnable
 
         usualEncounterThreshold = getConfig().getInt("MinimumBlocksMinedToNextVein") * 4; //Calculates how many blocks till we should find diamond and/or emerald average
 
@@ -156,19 +161,15 @@ public final class AntiXrayHeuristics extends JavaPlugin implements Listener {
     }
 
     @Override
-    public void onDisable()
-    {
-        if(getConfig().getString("StorageType").equals("MYSQL")) mm.CloseDataSource();
+    public void onDisable() {
+        if (getConfig().getString("StorageType").equals("MYSQL")) mm.CloseDataSource();
     }
 
     //Performs plugin updates at scheduled time
-    private void MainRunnable()
-    {
-        new BukkitRunnable()
-        {
+    private void MainRunnable() {
+        new BukkitRunnable() {
             @Override
-            public void run()
-            {
+            public void run() {
                 //Task: sessions HashMap update, Player suspicion decrease:
                 Set sessionsKeySet = sessions.keySet();
                 Iterator sessionsIterator = sessionsKeySet.iterator();
@@ -179,23 +180,22 @@ public final class AntiXrayHeuristics extends JavaPlugin implements Listener {
                     sessions.get(key).minedNonOreBlocksStreak += nonOreStreakDecreaseAmount; //Less streak
 
                     //Clamps:
-                    if(sessions.get(key).GetSuspicionLevel() < 0)
-                    {
+                    if (sessions.get(key).GetSuspicionLevel() < 0) {
                         sessions.get(key).SetSuspicionLevel(0); //Suspicion min 0
                         sessions.get(key).foundAtZeroSuspicionStreak++;
-                        if(sessions.get(key).foundAtZeroSuspicionStreak >= suspicionStreakZeroThreshold) sessions.remove(sessions.get(key)); //Remove MiningSession for inactivity
-                    }
-                    else sessions.get(key).foundAtZeroSuspicionStreak = 0; //Reset streak
-                    if(sessions.get(key).minedNonOreBlocksStreak < 0) sessions.get(key).minedNonOreBlocksStreak = 0; //Non ore mined blocks streak min 0
+                        if (sessions.get(key).foundAtZeroSuspicionStreak >= suspicionStreakZeroThreshold)
+                            sessions.remove(sessions.get(key)); //Remove MiningSession for inactivity
+                    } else sessions.get(key).foundAtZeroSuspicionStreak = 0; //Reset streak
+                    if (sessions.get(key).minedNonOreBlocksStreak < 0)
+                        sessions.get(key).minedNonOreBlocksStreak = 0; //Non ore mined blocks streak min 0
                 }
             }
         }.runTaskTimer(this, mainRunnableFrequency, mainRunnableFrequency);
     }
 
     //Trail algorithm updater
-    private void UpdateTrail(BlockBreakEvent ev, MiningSession s)
-    {
-        if(s.GetLastBlockCoordsStoreCounter() == 3) //Every 4 mined blocks
+    private void UpdateTrail(BlockBreakEvent ev, MiningSession s) {
+        if (s.GetLastBlockCoordsStoreCounter() == 3) //Every 4 mined blocks
         {
             s.SetMinedBlocksTrailArrayPos(s.GetNextCoordsStorePos(), ev.getBlock().getLocation()); //Store player block destruction coordinates in MiningSession IntVector3 Array
         }
@@ -203,29 +203,25 @@ public final class AntiXrayHeuristics extends JavaPlugin implements Listener {
         s.CycleBlockCoordsStoreCounter();
         s.CycleNextCoordsStorePos();
     }
+
     //Trail algorithm analysis
-    private float GetWeightFromAnalyzingTrail(BlockBreakEvent ev, MiningSession s, float mineralWeight)
-    {
+    private float GetWeightFromAnalyzingTrail(BlockBreakEvent ev, MiningSession s, float mineralWeight) {
         int unalignedMinedBlocksTimesDetected = 0; //Keeps track of how many times a block was detected as outside relative mined ore block height and or X || Z tunnel axises.
         int iteratedBlockCoordSlots = 0; //Keeps track of how many stored blocks we've iterated that weren't null. This is useful for pondering weights according to distance.
 
-        for (int i = 0; i < 10; i++)
-        {
-            if(s.GetMinedBlocksTrailArrayPos(i) != null) //Check for a possible empty traced block slot, if so skip, else analyze:
+        for (int i = 0; i < 10; i++) {
+            if (s.GetMinedBlocksTrailArrayPos(i) != null) //Check for a possible empty traced block slot, if so skip, else analyze:
             {
                 //Z, X, Y check: Check if the block coordinates we're iterating are outside "3x3 horizontal Z and X axis tunnels" from mined ore. (You can imagine this as a cross with mined ore in center)
                 //Relative altitude check:
-                if (s.GetMinedBlocksTrailArrayPos(i).GetY() < ev.getBlock().getLocation().getY() - 2 || s.GetMinedBlocksTrailArrayPos(i).GetY() > ev.getBlock().getLocation().getY() + 2)
-                {
+                if (s.GetMinedBlocksTrailArrayPos(i).GetY() < ev.getBlock().getLocation().getY() - 2 || s.GetMinedBlocksTrailArrayPos(i).GetY() > ev.getBlock().getLocation().getY() + 2) {
                     //Mined block is outside Y axis width
                     unalignedMinedBlocksTimesDetected++; //If trailed block wasn't in an axis, we'll add an unalignment point.
                 }
                 //Relative X axis separation check:
-                if (s.GetMinedBlocksTrailArrayPos(i).GetZ() < ev.getBlock().getLocation().getZ() - 2 || s.GetMinedBlocksTrailArrayPos(i).GetZ() > ev.getBlock().getLocation().getZ() + 2)
-                {
+                if (s.GetMinedBlocksTrailArrayPos(i).GetZ() < ev.getBlock().getLocation().getZ() - 2 || s.GetMinedBlocksTrailArrayPos(i).GetZ() > ev.getBlock().getLocation().getZ() + 2) {
                     //Relative Z axis separation check:
-                    if(s.GetMinedBlocksTrailArrayPos(i).GetX() < ev.getBlock().getLocation().getX() - 2 || s.GetMinedBlocksTrailArrayPos(i).GetX() > ev.getBlock().getLocation().getX() + 2)
-                    {
+                    if (s.GetMinedBlocksTrailArrayPos(i).GetX() < ev.getBlock().getLocation().getX() - 2 || s.GetMinedBlocksTrailArrayPos(i).GetX() > ev.getBlock().getLocation().getX() + 2) {
                         //Mined block is ALSO outside X axis width
                         unalignedMinedBlocksTimesDetected++; //If trailed block wasn't in an axis, we'll add an unalignment point.
                     }
@@ -239,7 +235,8 @@ public final class AntiXrayHeuristics extends JavaPlugin implements Listener {
         float fractionReducerValue = iteratedBlockCoordSlots - unalignedMinedBlocksTimesDetected / 2; //This value will reduce the additional OreWeight applied
 
         //If enough unaligned coordinates are detected (more than half the axises checked), assign smaller reduction value.
-        if ( unalignedMinedBlocksTimesDetected / 2 > iteratedBlockCoordSlots / 2 ) fractionReducerValue = fractionReducerValue / 3;
+        if (unalignedMinedBlocksTimesDetected / 2 > iteratedBlockCoordSlots / 2)
+            fractionReducerValue = fractionReducerValue / 3;
 
         if (fractionReducerValue < 1) fractionReducerValue = 1; //Min clamp to 1.
 
@@ -251,31 +248,28 @@ public final class AntiXrayHeuristics extends JavaPlugin implements Listener {
 
     private boolean CheckGoldBiome(BlockBreakEvent ev) //Returns true if biome has incremented chances of gold
     {
-        if(ev.getPlayer().getLocation().getBlock().getBiome() == Biome.BADLANDS
-                || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.BADLANDS_PLATEAU
-                || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.ERODED_BADLANDS
-                || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.MODIFIED_BADLANDS_PLATEAU
-                || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.MODIFIED_WOODED_BADLANDS_PLATEAU
-                || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.WOODED_BADLANDS_PLATEAU)
-        {
+        if (ev.getPlayer().getLocation().getBlock().getBiome() == Biome.BADLANDS
+            || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.ERODED_BADLANDS) {
             return true;
         } else return false;
     }
+
     private boolean CheckEmeraldBiome(BlockBreakEvent ev) //Returns true if biome has incremented chances of emerald
     {
-        if(ev.getPlayer().getLocation().getBlock().getBiome() == Biome.GRAVELLY_MOUNTAINS
-                || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.MODIFIED_GRAVELLY_MOUNTAINS
-                || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.MOUNTAINS
-                || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.MOUNTAIN_EDGE
-                || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.WOODED_MOUNTAINS)
-        {
+        if (ev.getPlayer().getLocation().getBlock().getBiome() == Biome.WINDSWEPT_HILLS
+            || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.WINDSWEPT_GRAVELLY_HILLS
+            || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.WINDSWEPT_FOREST
+            || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.STONY_PEAKS
+            || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.FROZEN_PEAKS
+            || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.GROVE
+            || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.SNOWY_SLOPES
+            || ev.getPlayer().getLocation().getBlock().getBiome() == Biome.JAGGED_PEAKS) {
             return true;
         } else return false;
     }
 
     //Attempts at updating the mining session for a player who broke a block, with just a few arguments. If this fails, the function returns false, else returns true
-    private boolean UpdateMiningSession(BlockBreakEvent ev, Material m)
-    {
+    private boolean UpdateMiningSession(BlockBreakEvent ev, Material m) {
         MiningSession s = sessions.get(ev.getPlayer().getName());
         if (s == null) return false; //Return update unsuccessful
         else {
@@ -283,86 +277,95 @@ public final class AntiXrayHeuristics extends JavaPlugin implements Listener {
 
             //Relevant non-ores mining triggers
             // These are right on top of the state machine because they're very common:
-            if ((m == Material.STONE) || (m == Material.NETHERRACK)
-
-                    || (spigotVersion.version.GetValue() >= 116 && m == Material.BASALT)) //Spigot for MC 1.16+
-            {
+            if (RELEVANT_BASES.contains(m)) {
                 s.UpdateTimeAccountingProperties(ev.getPlayer()); //This method updates some speed/time propeties and may influence suspicion decrease rates
                 s.minedNonOreBlocksStreak++;
                 UpdateTrail(ev, s); //We mined a non-ore, so we update our trail
             }
             //Relevant ores mining triggers:
-            else if (m == Material.COAL_ORE) {
+            else if (m == Material.COAL_ORE || m == Material.DEEPSLATE_COAL_ORE) {
                 s.UpdateTimeAccountingProperties(ev.getPlayer());
                 //Check that it's not the same block ore material as the last mined block's. If it is, it will execute "||" statement which will verify the distance from last same mined block material to new mined block is not less than configured vein size:
-                if(s.GetLastMinedOre() != m || s.GetLastMinedOreLocation().distance(ev.getBlock().getLocation()) > getConfig().getInt("ConsiderAdjacentWithinDistance"))
+                if (s.GetLastMinedOre() != m || s.GetLastMinedOreLocation().distance(ev.getBlock().getLocation()) > getConfig().getInt("ConsiderAdjacentWithinDistance"))
                     //Check if enough non-ore blocks have been previously mined in order to account for this ore (exposed ores fp prevention):
-                    if(s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
+                    if (s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
                         //We got to an ore over threshold, so we analyze our non-ores mined trail and get weight based on that:
                         s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("CoalWeight")));
                         s.minedNonOreBlocksStreak = 0; //Resets previously mined blocks counter
                     }
                 s.SetLastMinedOreData(m, ev.getBlock().getLocation());
-            } else if (m == Material.REDSTONE_ORE) {
+            } else if (m == Material.REDSTONE_ORE || m == Material.DEEPSLATE_REDSTONE_ORE) {
                 s.UpdateTimeAccountingProperties(ev.getPlayer());
                 if (s.GetLastMinedOre() != m || s.GetLastMinedOreLocation().distance(ev.getBlock().getLocation()) > getConfig().getInt("ConsiderAdjacentWithinDistance"))
-                    if(s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
+                    if (s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
                         s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("RedstoneWeight")));
                         s.minedNonOreBlocksStreak = 0;
                     }
                 s.SetLastMinedOreData(m, ev.getBlock().getLocation());
-            } else if (m == Material.IRON_ORE) {
+            } else if (m == Material.IRON_ORE || m == Material.DEEPSLATE_IRON_ORE) {
                 s.UpdateTimeAccountingProperties(ev.getPlayer());
                 if (s.GetLastMinedOre() != m || s.GetLastMinedOreLocation().distance(ev.getBlock().getLocation()) > getConfig().getInt("ConsiderAdjacentWithinDistance"))
-                    if(s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
+                    if (s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
                         s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("IronWeight")));
                         s.minedNonOreBlocksStreak = 0;
                     }
                 s.SetLastMinedOreData(m, ev.getBlock().getLocation());
-            } else if (m == Material.GOLD_ORE) {
+            } else if (m == Material.GOLD_ORE || m == Material.DEEPSLATE_GOLD_ORE) {
                 s.UpdateTimeAccountingProperties(ev.getPlayer());
                 if (s.GetLastMinedOre() != m || s.GetLastMinedOreLocation().distance(ev.getBlock().getLocation()) > getConfig().getInt("ConsiderAdjacentWithinDistance"))
                     if (s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
                         //Weight according to biome frequency:
-                        if(CheckGoldBiome(ev)) s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("GoldWeight")) / getConfig().getLong("FinalGoldWeightDivisionReducer") );
+                        if (CheckGoldBiome(ev))
+                            s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("GoldWeight")) / getConfig().getLong("FinalGoldWeightDivisionReducer"));
                         else s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("GoldWeight")));
                         s.minedNonOreBlocksStreak = 0;
                     }
                 s.SetLastMinedOreData(m, ev.getBlock().getLocation());
-            } else if (m == Material.LAPIS_ORE) {
+            } else if (m == Material.LAPIS_ORE || m == Material.DEEPSLATE_LAPIS_ORE) {
                 s.UpdateTimeAccountingProperties(ev.getPlayer());
                 if (s.GetLastMinedOre() != m || s.GetLastMinedOreLocation().distance(ev.getBlock().getLocation()) > getConfig().getInt("ConsiderAdjacentWithinDistance"))
-                    if(s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
+                    if (s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
                         s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("LapisWeight")));
                         s.minedNonOreBlocksStreak = 0;
                     }
                 s.SetLastMinedOreData(m, ev.getBlock().getLocation());
-            } else if (m == Material.DIAMOND_ORE) {
+            } else if (m == Material.DIAMOND_ORE || m == Material.DEEPSLATE_DIAMOND_ORE) {
                 s.UpdateTimeAccountingProperties(ev.getPlayer());
                 if (s.GetLastMinedOre() != m || s.GetLastMinedOreLocation().distance(ev.getBlock().getLocation()) > getConfig().getInt("ConsiderAdjacentWithinDistance"))
                     if (s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
                         if (s.minedNonOreBlocksStreak > usualEncounterThreshold)
                             s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("DiamondWeight"))); //Updates suspicion level normally.
-                        else s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, extraDiamondWeight)); //Updates suspicion level with extra suspicion since the ore was quite close to last mined ore.
+                        else
+                            s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, extraDiamondWeight)); //Updates suspicion level with extra suspicion since the ore was quite close to last mined ore.
 
                         s.minedNonOreBlocksStreak = 0;
                     }
                 s.SetLastMinedOreData(m, ev.getBlock().getLocation());
-            } else if (m == Material.EMERALD_ORE) {
+            } else if (m == Material.EMERALD_ORE || m == Material.DEEPSLATE_EMERALD_ORE) {
                 s.UpdateTimeAccountingProperties(ev.getPlayer());
-                if(s.GetLastMinedOre() != m || s.GetLastMinedOreLocation().distance(ev.getBlock().getLocation()) > getConfig().getInt("ConsiderAdjacentWithinDistance"))
-                    if(s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
-                        if(s.minedNonOreBlocksStreak > usualEncounterThreshold) {
+                if (s.GetLastMinedOre() != m || s.GetLastMinedOreLocation().distance(ev.getBlock().getLocation()) > getConfig().getInt("ConsiderAdjacentWithinDistance"))
+                    if (s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
+                        if (s.minedNonOreBlocksStreak > usualEncounterThreshold) {
                             //Weight according to biome frequency:
-                            if (CheckEmeraldBiome(ev)) s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("EmeraldWeight")) / getConfig().getLong("FinalEmeraldWeightDivisionReducer"));
-                            else s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("EmeraldWeight")));
-                        }
-                        else {
+                            if (CheckEmeraldBiome(ev))
+                                s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("EmeraldWeight")) / getConfig().getLong("FinalEmeraldWeightDivisionReducer"));
+                            else
+                                s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("EmeraldWeight")));
+                        } else {
                             //Weight according to biome frequency:
-                            if (CheckEmeraldBiome(ev)) s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, extraEmeraldWeight) / getConfig().getLong("FinalEmeraldWeightDivisionReducer"));
+                            if (CheckEmeraldBiome(ev))
+                                s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, extraEmeraldWeight) / getConfig().getLong("FinalEmeraldWeightDivisionReducer"));
                             else s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, extraEmeraldWeight));
                         }
 
+                        s.minedNonOreBlocksStreak = 0;
+                    }
+                s.SetLastMinedOreData(m, ev.getBlock().getLocation());
+            } else if (m == Material.COPPER_ORE || m == Material.DEEPSLATE_COPPER_ORE) {
+                s.UpdateTimeAccountingProperties(ev.getPlayer());
+                if (s.GetLastMinedOre() != m || s.GetLastMinedOreLocation().distance(ev.getBlock().getLocation()) > getConfig().getInt("ConsiderAdjacentWithinDistance"))
+                    if (s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
+                        s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("CopperWeight")));
                         s.minedNonOreBlocksStreak = 0;
                     }
                 s.SetLastMinedOreData(m, ev.getBlock().getLocation());
@@ -374,111 +377,92 @@ public final class AntiXrayHeuristics extends JavaPlugin implements Listener {
                         s.minedNonOreBlocksStreak = 0;
                     }
                 s.SetLastMinedOreData(m, ev.getBlock().getLocation());
+            } else if (m == Material.NETHER_GOLD_ORE) {
+                s.UpdateTimeAccountingProperties(ev.getPlayer());
+                if (s.GetLastMinedOre() != m || s.GetLastMinedOreLocation().distance(ev.getBlock().getLocation()) > getConfig().getInt("ConsiderAdjacentWithinDistance"))
+                    if (s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
+                        s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("NetherGoldWeight")));
+                        s.minedNonOreBlocksStreak = 0;
+                    }
+                s.SetLastMinedOreData(m, ev.getBlock().getLocation());
+            } else if (m == Material.ANCIENT_DEBRIS) {
+                s.UpdateTimeAccountingProperties(ev.getPlayer());
+                if (s.GetLastMinedOre() != m || s.GetLastMinedOreLocation().distance(ev.getBlock().getLocation()) > getConfig().getInt("ConsiderAdjacentWithinDistance"))
+                    if (s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
+                        if (s.minedNonOreBlocksStreak > usualEncounterThreshold)
+                            s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("AncientDebrisWeight"))); //Updates suspicion level normally.
+                        else
+                            s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, extraAncientDebrisWeight)); //Updates suspicion level with extra suspicion since the ore was quite close to last mined ore.
 
-            } else if(spigotVersion.version.GetValue() >= 116) { //Spigot for MC 1.16+
-
-                if (m == Material.NETHER_GOLD_ORE) {
-                    s.UpdateTimeAccountingProperties(ev.getPlayer());
-                    if(s.GetLastMinedOre() != m || s.GetLastMinedOreLocation().distance(ev.getBlock().getLocation()) > getConfig().getInt("ConsiderAdjacentWithinDistance"))
-                        if(s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
-                            s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("NetherGoldWeight")));
-                            s.minedNonOreBlocksStreak = 0;
-                        }
-                    s.SetLastMinedOreData(m, ev.getBlock().getLocation());
-                } else if (m == Material.ANCIENT_DEBRIS) {
-                    s.UpdateTimeAccountingProperties(ev.getPlayer());
-                    if (s.GetLastMinedOre() != m || s.GetLastMinedOreLocation().distance(ev.getBlock().getLocation()) > getConfig().getInt("ConsiderAdjacentWithinDistance"))
-                        if (s.minedNonOreBlocksStreak > getConfig().getInt("MinimumBlocksMinedToNextVein")) {
-                            if (s.minedNonOreBlocksStreak > usualEncounterThreshold)
-                                s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, getConfig().getLong("AncientDebrisWeight"))); //Updates suspicion level normally.
-                            else s.AddSuspicionLevel(GetWeightFromAnalyzingTrail(ev, s, extraAncientDebrisWeight)); //Updates suspicion level with extra suspicion since the ore was quite close to last mined ore.
-
-                            s.minedNonOreBlocksStreak = 0;
-                        }
-                    s.SetLastMinedOreData(m, ev.getBlock().getLocation());
-                } else {
-                    //Any other block during mining session
-                    s.minedNonOreBlocksStreak++;
-                    UpdateTrail(ev, s); //We mined a non-ore, so we update our trail
-                }
+                        s.minedNonOreBlocksStreak = 0;
+                    }
+                s.SetLastMinedOreData(m, ev.getBlock().getLocation());
             } else {
                 //Any other block during mining session
                 s.minedNonOreBlocksStreak++;
                 UpdateTrail(ev, s); //We mined a non-ore, so we update our trail
             }
-        }
 
             //Property clamping:
             if (s.GetSuspicionLevel() < 0f) s.SetSuspicionLevel(0f);
 
             //Behaviour analysis and handling:
-            if(s.GetSuspicionLevel() > suspicionLevelThreshold)
-            {
+            if (s.GetSuspicionLevel() > suspicionLevelThreshold) {
                 XrayerHandler.HandleXrayer(ev.getPlayer().getName());
             }
 
-        return true; //Return update successful
+            return true; //Return update successful
+        }
     }
 
     //Returns block if relevant, returns Material.AIR if irrelevant
-    private Material RelevantBlockCheck(BlockBreakEvent e)
-    {
-        if (e.getBlock().getType() == Material.STONE)
-            return Material.STONE;
-        else if (e.getBlock().getType() == Material.NETHERRACK)
-            return Material.NETHERRACK;
-
-        else if (e.getBlock().getType() == Material.COAL_ORE && getConfig().getLong("CoalWeight") != 0f)
-            return Material.COAL_ORE;
-        else if (e.getBlock().getType() == Material.REDSTONE_ORE && getConfig().getLong("RedstoneWeight") != 0f)
-            return Material.REDSTONE_ORE;
-        else if (e.getBlock().getType() == Material.IRON_ORE && getConfig().getLong("IronWeight") != 0f)
-            return Material.IRON_ORE;
-        else if (e.getBlock().getType() == Material.GOLD_ORE && getConfig().getLong("GoldWeight") != 0f)
-            return Material.GOLD_ORE;
-        else if (e.getBlock().getType() == Material.LAPIS_ORE && getConfig().getLong("LapisWeight") != 0f)
-            return Material.LAPIS_ORE;
-        else if (e.getBlock().getType() == Material.DIAMOND_ORE && getConfig().getLong("DiamondWeight") != 0f)
-            return Material.DIAMOND_ORE;
-        else if (e.getBlock().getType() == Material.EMERALD_ORE && getConfig().getLong("EmeraldWeight") != 0f)
-            return Material.EMERALD_ORE;
-        else if (e.getBlock().getType() == Material.NETHER_QUARTZ_ORE && getConfig().getLong("QuartzWeight") != 0f)
-            return Material.NETHER_QUARTZ_ORE;
-
-        else if(spigotVersion.version.GetValue() >= 116) //Spigot for MC 1.16+
-        {
-            if (e.getBlock().getType() == Material.BASALT)
-                return Material.BASALT;
-
-            else if (e.getBlock().getType() == Material.NETHER_GOLD_ORE && getConfig().getLong("NetherGoldWeight") != 0f)
-                return Material.NETHER_GOLD_ORE;
-            else if (e.getBlock().getType() == Material.ANCIENT_DEBRIS && getConfig().getLong("AncientDebrisWeight") != 0f)
-                return Material.ANCIENT_DEBRIS;
-
-            else return Material.AIR;
+    private Material RelevantBlockCheck(BlockBreakEvent e) {
+        Material type = e.getBlock().getType();
+        if (RELEVANT_BASES.contains(type)) return type;
+        switch (type) {
+            case COAL_ORE:
+            case DEEPSLATE_COAL_ORE:
+                if (getConfig().getLong("CoalWeight") != 0f) return type;
+            case REDSTONE_ORE:
+            case DEEPSLATE_REDSTONE_ORE:
+                if (getConfig().getLong("RedstoneWeight") != 0f) return type;
+            case IRON_ORE:
+            case DEEPSLATE_IRON_ORE:
+                if (getConfig().getLong("IronWeight") != 0f) return type;
+            case GOLD_ORE:
+            case DEEPSLATE_GOLD_ORE:
+                if (getConfig().getLong("GoldWeight") != 0f) return type;
+            case LAPIS_ORE:
+            case DEEPSLATE_LAPIS_ORE:
+                if (getConfig().getLong("LapisWeight") != 0f) return type;
+            case DIAMOND_ORE:
+            case DEEPSLATE_DIAMOND_ORE:
+                if (getConfig().getLong("DiamondWeight") != 0f) return type;
+            case EMERALD_ORE:
+            case DEEPSLATE_EMERALD_ORE:
+                if (getConfig().getLong("EmeraldWeight") != 0f) return type;
+            case COPPER_ORE:
+            case DEEPSLATE_COPPER_ORE:
+                if (getConfig().getLong("CopperWeight") != 0f) return type;
+            case NETHER_QUARTZ_ORE:
+                if (getConfig().getLong("QuartzWeight") != 0f) return type;
+            case NETHER_GOLD_ORE:
+                if (getConfig().getLong("NetherGoldWeight") != 0f) return type;
+            case ANCIENT_DEBRIS:
+                if (getConfig().getLong("AncientDebrisWeight") != 0f) return type;
         }
-        else return Material.AIR;
+        return Material.AIR;
     }
 
     //Inspects the blockbreak event further for actions
-    protected void BBEventAnalyzer(BlockBreakEvent ev)
-    {
+    protected void BBEventAnalyzer(BlockBreakEvent ev) {
         if (!ev.getPlayer().hasPermission("AXH.Ignore")) {
             //Check if the block is relevant:
             Material m = RelevantBlockCheck(ev);
             if (m != Material.AIR) { //Attempt at updating player mining session:
                 if (!UpdateMiningSession(ev, m)) { //Let's asume the player doesn't have a MiningSession entry. Then is the block consequently a first stone or first netherrack?
-                    if (m == Material.STONE) {
+                    if (RELEVANT_BASES.contains(m)) {
                         sessions.put(ev.getPlayer().getName(), new MiningSession(this)); //Adds new entry to sessions HashMap for player
-                    }
-                    else if (m == Material.NETHERRACK) {
-                        sessions.put(ev.getPlayer().getName(), new MiningSession(this)); //Adds new entry to sessions HashMap for player
-                    }
-
-                    else if(spigotVersion.version.GetValue() >= 116) { //Spigot for MC 1.16+
-                        if (m == Material.BASALT) {
-                            sessions.put(ev.getPlayer().getName(), new MiningSession(this)); //Adds new entry to sessions HashMap for player
-                        }
                     }
                 }
             }
